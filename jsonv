@@ -47,19 +47,79 @@
 
 dir=$(cd `dirname $0` && pwd)
 
-if [[ $dir =~ \/bin$ ]]; then
-  awk=$dir/.jsonv/json.awk
-  log=$dir/.jsonv/log
-  json=$dir/.jsonv/json
-  tokens=$dir/.jsonv/tokens
-  map=$dir/.jsonv/map
-else
-  awk=$dir/utils/json.awk
-  log=$dir/tmp/log
-  json=$dir/tmp/json
-  tokens=$dir/tmp/tokens
-  map=$dir/tmp/map
+  LOG=/dev/null
+  JSON=/tmp/jsonv_json
+  TOKENS=/tmp/jsonv_tokens
+  MAP=/tmp/jsonv_map
+  AWK=/dev/zero
+
+if [ -s /usr/share/jsonv/json.awk ]; then
+    AWK=/usr/share/jsonv/json.awk
+elif [ -s $dir/utils/json.awk ]; then
+    AWK=$dir/utils/json.awk
+elif [ -s $dir/json.awk ]; then
+    AWK=$dir/json.awk
 fi
+
+usage () {
+    echo
+    echo "Usage: jsonv [-l] [-v] [-h]"
+    echo
+    echo "-l, --log         Path to log file    Default: none"
+    echo "-v, --version     Prints version number"
+    echo "-h, --help        Prints this text"
+    echo "-a, --awk         Path to json.awk file"
+    echo
+    echo
+    echo "Example:"
+    echo
+    echo "      $ cat examples/simple.json | ./jsonv id,name,age"
+    echo "      1,\"Dagny Taggart\",39"
+    echo "      8,\"Francisco D'Anconia\",40"
+    echo "      12,\"Hank Rearden (a.k.a \"The Tank\")\",46"
+    echo
+    echo "      $ cat examples/simple.json | ./jsonv id,name,age > example.csv"
+    echo "      $ cat example.csv"
+    echo "      1,\"Dagny Taggart\",39"
+    echo "      8,\"Francisco D'Anconia\",40"
+    echo "      12,\"Hank Rearden (a.k.a \"The Tank\")\",46"
+    echo
+}
+
+parse_options () {
+    POSITIONAL=()
+    while [[ $# -gt 0 ]]
+    do
+    key="$1"
+
+    case $key in
+        -a|--awk)
+            AWK=$(realpath $2)
+            shift
+            shift
+            ;;
+        -l|--log)
+            LOG="$2"
+            shift
+            shift
+            ;;
+        -v|--version)
+            echo "$0 0.2.0"
+            exit 0
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+        POSITIONAL+=("$1")
+        shift
+        ;;
+    esac
+done
+set -- "${POSITIONAL[@]}" # restore positional parameters
+    jsonv $1 $2
+}
 
 get_key () {
   echo $1 | xargs | gawk -F. '{
@@ -73,15 +133,22 @@ get_key () {
 }
 
 echo_log () {
-  echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1" >> $log
+  echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1" >> $LOG
 }
 
 jsonv () {
+  if [ -s $AWK ]; then
+      echo_log "Using $AWK file"
+  else 
+      echo "No json.awk file found!"
+      exit 0
+  fi
+
   echo_log "Writing JSON file"
-  cat /dev/stdin > $json
+  cat /dev/stdin > $JSON
 
   echo_log "Writing tokens file"
-  echo -e "$json\n" | gawk -f $awk > $tokens
+  echo -e "$JSON\n" | gawk -f $AWK > $TOKENS
 
   echo_log "Deriving keys"
   keys=()
@@ -96,14 +163,14 @@ jsonv () {
   fi
 
   echo_log "Counting entries"
-  count=$(cat $tokens | sed 's/^[\["a-z,]*//g' | sed 's/,.*//g' | gawk '/^[0-9]+$/ && !_[$0]++' | gawk -F\t 'BEGIN{max==""} ($1 > max) {max=$1} END{print max}')
+  count=$(cat $TOKENS | sed 's/^[\["a-z,]*//g' | sed 's/,.*//g' | gawk '/^[0-9]+$/ && !_[$0]++' | gawk -F\t 'BEGIN{max==""} ($1 > max) {max=$1} END{print max}')
 
   echo_log "Writing map file"
   row=''
   for key in "${keys[@]}"; do
     row="$row[$prefix"INDEX",$key]\t"
   done
-  echo -e $row | gawk -F\t -v n="$count" '{for(i=0;i<=n;i++) print}' | gawk -F\t '{gsub("INDEX",NR-1,$0); print $0}' > $map
+  echo -e $row | gawk -F\t -v n="$count" '{for(i=0;i<=n;i++) print}' | gawk -F\t '{gsub("INDEX",NR-1,$0); print $0}' > $MAP
 
   echo_log "Deriving line format"
   format=''
@@ -116,14 +183,19 @@ jsonv () {
 
   echo_log "Compiling CSV output"
   program="'FNR==NR{a[\$1]=\$2; next} {print $format}'"
-  eval "gawk -F\\\t $program $tokens $map"
+  eval "gawk -F\\\t $program $TOKENS $MAP"
+
+  echo_log "Cleaning temp files."
+  rm $TOKENS
+  rm $JSON
+  rm $MAP
 
   echo_log "Done."
-  echo "=====================" >> $log
+  echo "=====================" >> $LOG
 }
-
-if [[ "$1" == "-v" || "$1" == "--version" ]]; then
-  echo "0.2.0"
-elif [ "$1" != "" ]; then
-  jsonv $1 $2
+if [ "$1" != "" ]; then
+    parse_options "$@"
+else
+    usage
+    exit 0
 fi
