@@ -1,12 +1,14 @@
-PREFIX?=/usr/local
+PREFIX?=/usr
 INSTALLDIR?=$(DESTDIR)$(PREFIX)
 
 install:
-	install -d                   $(INSTALLDIR)/bin
-	install -m755 jsonv          $(INSTALLDIR)/bin/jsonv
-	install -d                   $(INSTALLDIR)/bin/.jsonv
-	install -m755 utils/json.awk $(INSTALLDIR)/bin/.jsonv/json.awk
+	install -v -m755 jsonv          $(INSTALLDIR)/bin/jsonv
+
+	install -d                   /usr/share/jsonv
+	install -m755 utils/json.awk /usr/share/jsonv/json.awk
+	install -d                   /usr/share/jsonv/examples
+	install -m755 examples/*     /usr/share/jsonv/examples/ 	 
 
 uninstall:
 	rm -f  $(INSTALLDIR)/bin/jsonv
-	rm -rf $(INSTALLDIR)/bin/.jsonv
+	rm -rf /usr/share/jsonv
